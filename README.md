@@ -1,6 +1,6 @@
 # swh-dataset-downloader
 
-Download source code snapshots for a list of `(repository URL, commit SWHID)` pairs.
+Download source code associated to commit archived on Software Heritage take as input a list of   `(repository URL, revision SWHID)` pairs.
 
 Each entry is fetched from **GitHub** (shallow clone) when possible, falling back to the **[Software Heritage Vault](https://archive.softwareheritage.org/api/1/vault/)** (git-bare bundle). Already-downloaded entries are skipped on re-run.
 
