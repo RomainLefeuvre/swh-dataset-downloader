@@ -1,0 +1,11 @@
+services:
+  downloader:
+    build: .
+    volumes:
+      # Mount your input file (read-only) and output directory
+      - ./input.json:/app/input.json:ro
+      - ./output:/app/output
+    environment:
+      - SWH_TOKEN=${SWH_TOKEN}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+    command: input.json --output-dir /app/output
