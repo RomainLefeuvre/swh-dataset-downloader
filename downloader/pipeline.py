@@ -11,10 +11,52 @@ from .models import DownloadSource, DownloadTask, TaskStatus
 from .swh_client import SWHVaultClient
 
 logger = logging.getLogger(__name__)
+http_logger = logging.getLogger(__name__ + ".http")
 
 # Maximum concurrent jobs per backend
 SWH_MAX_CONCURRENT = 2
 GITHUB_MAX_CONCURRENT = 2
+
+
+def _redact_headers(headers: dict) -> dict:
+    """Replace Authorization token values with '***' for safe logging."""
+    return {
+        k: ("***" if k.lower() == "authorization" else v)
+        for k, v in headers.items()
+    }
+
+
+def _build_trace_config() -> aiohttp.TraceConfig:
+    """Return a TraceConfig that logs every HTTP request and response at DEBUG level."""
+
+    async def on_request_start(
+        _session: aiohttp.ClientSession,
+        _ctx: object,
+        params: aiohttp.TraceRequestStartParams,
+    ) -> None:
+        http_logger.debug(
+            "→ %s %s  headers=%s",
+            params.method,
+            params.url,
+            _redact_headers(dict(params.headers)),
+        )
+
+    async def on_request_end(
+        _session: aiohttp.ClientSession,
+        _ctx: object,
+        params: aiohttp.TraceRequestEndParams,
+    ) -> None:
+        http_logger.debug(
+            "← %s %s  status=%d",
+            params.method,
+            params.url,
+            params.response.status,
+        )
+
+    trace = aiohttp.TraceConfig()
+    trace.on_request_start.append(on_request_start)
+    trace.on_request_end.append(on_request_end)
+    return trace
 
 
 def _make_output_dir_name(index: int, url: str, swhid: str) -> str:
@@ -39,7 +81,10 @@ async def _process_task(
                 task.source = DownloadSource.GITHUB
                 await gh.download(task.url, commit, task.output_dir)
             else:
-                logger.info("[%d] Commit absent from GitHub → falling back to SWH vault", task.index)
+                logger.info(
+                    "[%d] Commit %s absent from GitHub (%s) → falling back to SWH vault",
+                    task.index, commit, task.url,
+                )
                 task.source = DownloadSource.SWH_VAULT
                 await swh.download(task.swhid, task.output_dir)
         else:
@@ -62,6 +107,7 @@ async def run_pipeline(
     output_base: Path,
     swh_token: str,
     github_token: str | None = None,
+    debug: bool = False,
 ) -> list[DownloadTask]:
     """Run all download tasks concurrently, respecting per-backend concurrency limits."""
     swh_semaphore = asyncio.Semaphore(SWH_MAX_CONCURRENT)
@@ -77,10 +123,12 @@ async def run_pipeline(
         for i, pair in enumerate(pairs)
     ]
 
-    # Use a single shared aiohttp session for connection pooling
+    trace_configs = [_build_trace_config()] if debug else []
     connector = aiohttp.TCPConnector(limit=20)
     timeout = aiohttp.ClientTimeout(total=3600)  # vault cooking can take tens of minutes
-    async with aiohttp.ClientSession(connector=connector, timeout=timeout) as session:
+    async with aiohttp.ClientSession(
+        connector=connector, timeout=timeout, trace_configs=trace_configs
+    ) as session:
         swh = SWHVaultClient(swh_token, session, swh_semaphore)
         gh = GitHubClient(github_token, session, github_semaphore)
 

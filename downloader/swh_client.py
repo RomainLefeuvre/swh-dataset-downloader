@@ -44,7 +44,23 @@ class SWHVaultClient:
         async with self._semaphore:
             await self._cook_and_extract(swhid, output_dir)
 
+    async def _resolve_rev_to_dir(self, swhid: str) -> str:
+        """Return the root directory SWHID for a revision SWHID."""
+        rev_hash = swhid.split(":")[-1]
+        url = f"{SWH_API_BASE}/revision/{rev_hash}/"
+        async with self._session.get(url, headers=self._headers) as resp:
+            if resp.status != 200:
+                body = await resp.text()
+                raise RuntimeError(f"SWH revision lookup failed (HTTP {resp.status}): {body}")
+            data = await resp.json()
+        dir_hash = data["directory"]
+        logger.debug("Resolved %s → swh:1:dir:%s", swhid, dir_hash)
+        return f"swh:1:dir:{dir_hash}"
+
     async def _cook_and_extract(self, swhid: str, output_dir: Path) -> None:
+        if swhid.startswith("swh:1:rev:"):
+            swhid = await self._resolve_rev_to_dir(swhid)
+
         cook_url = f"{SWH_API_BASE}/vault/flat/{swhid}/"
 
         # Start cooking (POST). If already cooked, SWH returns 200 with status=done.

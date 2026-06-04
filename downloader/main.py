@@ -89,7 +89,7 @@ def main(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     results = asyncio.run(
-        run_pipeline(pairs, output_dir, swh_token, github_token)
+        run_pipeline(pairs, output_dir, swh_token, github_token, debug=verbose)
     )
 
     # ── Summary ────────────────────────────────────────────────────────────────

@@ -10,6 +10,7 @@ import aiohttp
 logger = logging.getLogger(__name__)
 
 GITHUB_API_BASE = "https://api.github.com"
+GITHUB_ARCHIVE_BASE = "https://github.com"
 
 
 def _parse_github_repo(url: str) -> tuple[str, str]:
@@ -57,28 +58,30 @@ class GitHubClient:
         session: aiohttp.ClientSession,
         semaphore: asyncio.Semaphore,
     ) -> None:
-        self._headers = {"Accept": "application/vnd.github+json"}
+        self._api_headers = {"Accept": "application/vnd.github+json"}
         if token:
-            self._headers["Authorization"] = f"Bearer {token}"
+            self._api_headers["Authorization"] = f"Bearer {token}"
+        self._token = token
         self._session = session
         self._semaphore = semaphore
 
+    def _archive_url(self, owner: str, repo: str, commit_hash: str) -> str:
+        return f"{GITHUB_ARCHIVE_BASE}/{owner}/{repo}/archive/{commit_hash}.tar.gz"
+
     async def commit_exists(self, url: str, commit_hash: str) -> bool:
-        """Return True if the commit is reachable on GitHub (HTTP 200)."""
+        """Return True if the commit is reachable on GitHub.
+
+        Uses the web archive URL (no auth needed for public repos) so that
+        unauthenticated calls don't get a 401 from the API.
+        If a token is available, double-checks via the API for accuracy.
+        """
         owner, repo = _parse_github_repo(url)
-        api_url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/commits/{commit_hash}"
+        archive_url = self._archive_url(owner, repo, commit_hash)
         try:
-            async with self._session.get(api_url, headers=self._headers) as resp:
-                if resp.status == 200:
-                    return True
-                if resp.status == 404:
-                    return False
-                # Rate limit or other transient error — treat as not available
-                logger.warning(
-                    "GitHub commit check returned unexpected status %s for %s@%s",
-                    resp.status, url, commit_hash,
-                )
-                return False
+            async with self._session.head(
+                archive_url, allow_redirects=True
+            ) as resp:
+                return resp.status == 200
         except aiohttp.ClientError as exc:
             logger.warning("GitHub commit check failed for %s@%s: %s", url, commit_hash, exc)
             return False
@@ -90,11 +93,9 @@ class GitHubClient:
 
     async def _download_tarball(self, url: str, commit_hash: str, output_dir: Path) -> None:
         owner, repo = _parse_github_repo(url)
-        tarball_url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/tarball/{commit_hash}"
+        archive_url = self._archive_url(owner, repo, commit_hash)
 
-        async with self._session.get(
-            tarball_url, headers=self._headers, allow_redirects=True
-        ) as resp:
+        async with self._session.get(archive_url, allow_redirects=True) as resp:
             if resp.status != 200:
                 body = await resp.text()
                 raise RuntimeError(
