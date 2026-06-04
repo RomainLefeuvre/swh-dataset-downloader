@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import re
+import time
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -15,7 +16,7 @@ http_logger = logging.getLogger(__name__ + ".http")
 
 # Maximum concurrent jobs per backend
 SWH_MAX_CONCURRENT = 2
-GITHUB_MAX_CONCURRENT = 2
+GITHUB_MAX_CONCURRENT = 5
 
 
 def _redact_headers(headers: dict) -> dict:
@@ -67,37 +68,63 @@ def _make_output_dir_name(index: int, url: str, swhid: str) -> str:
     return f"{index:04d}_{path}_{short_hash}"
 
 
+DONE_MARKER = ".done"
+
+
 async def _process_task(
     task: DownloadTask,
     swh: SWHVaultClient,
     gh: GitHubClient,
 ) -> DownloadTask:
+    done_marker = task.output_dir / DONE_MARKER
+    if done_marker.exists():
+        logger.info("[%d] skipped (already done)  %s  %s", task.index, task.url, task.commit_hash)
+        task.status = TaskStatus.DONE
+        return task
+
+    logger.info("[%d] start  %s  %s", task.index, task.url, task.commit_hash)
+    t0 = time.monotonic()
     task.status = TaskStatus.DOWNLOADING
     try:
-        if task.is_github_url:
-            commit = task.commit_hash
-            if commit and await gh.commit_exists(task.url, commit):
-                logger.info("[%d] Commit present on GitHub → downloading from GitHub", task.index)
+        if task.is_github_url and task.commit_hash:
+            try:
+                fetched = await gh.download(task.url, task.commit_hash, task.output_dir)
+            except Exception as gh_exc:
+                logger.warning(
+                    "[%d] GitHub download raised %s → falling back to SWH vault",
+                    task.index, gh_exc,
+                )
+                fetched = False
+            if fetched:
                 task.source = DownloadSource.GITHUB
-                await gh.download(task.url, commit, task.output_dir)
             else:
                 logger.info(
-                    "[%d] Commit %s absent from GitHub (%s) → falling back to SWH vault",
-                    task.index, commit, task.url,
+                    "[%d] Commit %s not fetchable from GitHub (%s) → falling back to SWH gitbare",
+                    task.index, task.commit_hash, task.url,
                 )
-                task.source = DownloadSource.SWH_VAULT
                 await swh.download(task.swhid, task.output_dir)
+                task.source = DownloadSource.SWH_GITBARE
         else:
-            logger.info("[%d] Non-GitHub URL → using SWH vault", task.index)
-            task.source = DownloadSource.SWH_VAULT
+            logger.info("[%d] Non-GitHub URL → using SWH gitbare", task.index)
             await swh.download(task.swhid, task.output_dir)
+            task.source = DownloadSource.SWH_GITBARE
 
         task.status = TaskStatus.DONE
+        done_marker.touch()
+        elapsed = time.monotonic() - t0
+        logger.info(
+            "[%d] done in %.1fs  [%s]  %s  %s",
+            task.index, elapsed, task.source.value, task.url, task.commit_hash,
+        )
 
     except Exception as exc:
+        elapsed = time.monotonic() - t0
         task.status = TaskStatus.FAILED
         task.error = str(exc)
-        logger.error("[%d] Failed for %s: %s", task.index, task.url, exc)
+        logger.error(
+            "[%d] failed after %.1fs  %s  %s  — %s",
+            task.index, elapsed, task.url, task.commit_hash, exc,
+        )
 
     return task
 
@@ -130,7 +157,7 @@ async def run_pipeline(
         connector=connector, timeout=timeout, trace_configs=trace_configs
     ) as session:
         swh = SWHVaultClient(swh_token, session, swh_semaphore)
-        gh = GitHubClient(github_token, session, github_semaphore)
+        gh = GitHubClient(github_token, github_semaphore)
 
         results = await asyncio.gather(*[_process_task(t, swh, gh) for t in tasks])
 

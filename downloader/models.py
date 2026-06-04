@@ -6,7 +6,7 @@ from typing import Optional
 
 class DownloadSource(Enum):
     GITHUB = "github"
-    SWH_VAULT = "swh_vault"
+    SWH_GITBARE = "swh_gitbare"
 
 
 class TaskStatus(Enum):

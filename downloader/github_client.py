@@ -1,108 +1,88 @@
 import asyncio
-import io
 import logging
-import tarfile
+import subprocess
+import time
 from pathlib import Path
-from urllib.parse import urlparse
-
-import aiohttp
 
 logger = logging.getLogger(__name__)
 
-GITHUB_API_BASE = "https://api.github.com"
-GITHUB_ARCHIVE_BASE = "https://github.com"
+
+def _clean_git_output(raw: bytes) -> str:
+    """Strip carriage returns git uses for terminal progress bars."""
+    text = raw.decode(errors="replace")
+    lines = [line.split("\r")[-1] for line in text.splitlines()]
+    return "\n".join(line for line in lines if line.strip())
 
 
-def _parse_github_repo(url: str) -> tuple[str, str]:
-    """Return (owner, repo) from any GitHub repository URL."""
-    path = urlparse(url).path.strip("/").removesuffix(".git")
-    parts = path.split("/")
-    if len(parts) < 2 or not parts[0] or not parts[1]:
-        raise ValueError(f"Cannot parse GitHub owner/repo from URL: {url}")
-    return parts[0], parts[1]
-
-
-def _extract_tar_strip_root(content: bytes, output_dir: Path) -> None:
-    """Extract a tar.gz while stripping the single root directory GitHub wraps around the tree."""
-    output_dir.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(fileobj=io.BytesIO(content), mode="r:gz") as tar:
-        members = tar.getmembers()
-        if not members:
-            return
-
-        # All GitHub tarballs have a single top-level dir like "owner-repo-sha1234/"
-        root_prefix = members[0].name.split("/")[0] + "/"
-
-        for member in members:
-            if member.name.startswith(root_prefix):
-                member.name = member.name[len(root_prefix):]
-            if not member.name:
-                continue
-            try:
-                tar.extract(member, output_dir, set_attrs=False)
-            except TypeError:
-                # set_attrs added in Python 3.12
-                tar.extract(member, output_dir)
+async def _run_git(*args: str, cwd: str | None = None) -> subprocess.CompletedProcess:
+    loop = asyncio.get_running_loop()
+    return await loop.run_in_executor(
+        None,
+        lambda: subprocess.run(["git", *args], cwd=cwd, capture_output=True),
+    )
 
 
 class GitHubClient:
-    """Async client for GitHub: commit presence check + tarball download.
+    """Fetches a single commit from GitHub via git fetch --depth=1.
 
-    At most `semaphore` concurrent downloads are active at any time.
-    Commit existence checks are lightweight and do not occupy a slot.
+    The output directory is left as a proper git repository.
+    At most `semaphore` git operations run concurrently.
     """
 
-    def __init__(
-        self,
-        token: str | None,
-        session: aiohttp.ClientSession,
-        semaphore: asyncio.Semaphore,
-    ) -> None:
-        self._api_headers = {"Accept": "application/vnd.github+json"}
-        if token:
-            self._api_headers["Authorization"] = f"Bearer {token}"
+    def __init__(self, token: str | None, semaphore: asyncio.Semaphore) -> None:
         self._token = token
-        self._session = session
         self._semaphore = semaphore
 
-    def _archive_url(self, owner: str, repo: str, commit_hash: str) -> str:
-        return f"{GITHUB_ARCHIVE_BASE}/{owner}/{repo}/archive/{commit_hash}.tar.gz"
+    def _authenticated_url(self, url: str) -> str:
+        if self._token:
+            return url.replace("https://", f"https://{self._token}@", 1)
+        return url
 
-    async def commit_exists(self, url: str, commit_hash: str) -> bool:
-        """Return True if the commit is reachable on GitHub.
+    async def download(self, url: str, commit_hash: str, output_dir: Path) -> bool:
+        """Shallow-fetch the commit and check it out as a git repo.
 
-        Uses the web archive URL (no auth needed for public repos) so that
-        unauthenticated calls don't get a 401 from the API.
-        If a token is available, double-checks via the API for accuracy.
+        Returns False if the commit is unreachable on GitHub (caller falls back to SWH).
+        Raises RuntimeError on unexpected git failures.
         """
-        owner, repo = _parse_github_repo(url)
-        archive_url = self._archive_url(owner, repo, commit_hash)
-        try:
-            async with self._session.head(
-                archive_url, allow_redirects=True
-            ) as resp:
-                return resp.status == 200
-        except aiohttp.ClientError as exc:
-            logger.warning("GitHub commit check failed for %s@%s: %s", url, commit_hash, exc)
+        async with self._semaphore:
+            return await self._fetch_and_checkout(url, commit_hash, output_dir)
+
+    async def _fetch_and_checkout(self, url: str, commit_hash: str, output_dir: Path) -> bool:
+        clone_url = self._authenticated_url(url)
+        logger.info("[github] fetching %s @ %s", url, commit_hash)
+        t0 = time.monotonic()
+
+        output_dir.mkdir(parents=True, exist_ok=True)
+        await _run_git("init", str(output_dir))
+        await _run_git("remote", "add", "origin", clone_url, cwd=str(output_dir))
+
+        logger.info("[github] git fetch --depth=1 origin %s", commit_hash)
+        fetch = await _run_git(
+            "fetch", "--depth=1", "origin", commit_hash,
+            cwd=str(output_dir),
+        )
+        if fetch.returncode != 0:
+            stderr = _clean_git_output(fetch.stderr)
+            if stderr:
+                logger.error("[github] fetch failed:\n%s", stderr)
             return False
 
-    async def download(self, url: str, commit_hash: str, output_dir: Path) -> None:
-        """Download the repo tree at commit_hash as a tar.gz and extract it."""
-        async with self._semaphore:
-            await self._download_tarball(url, commit_hash, output_dir)
+        log = await _run_git(
+            "log", "FETCH_HEAD", "-1",
+            "--format=  hash:    %H%n  date:    %ai%n  author:  %an <%ae>%n  subject: %s",
+            cwd=str(output_dir),
+        )
+        if log.returncode == 0:
+            logger.info("[github] commit info:\n%s", log.stdout.decode(errors="replace").strip())
 
-    async def _download_tarball(self, url: str, commit_hash: str, output_dir: Path) -> None:
-        owner, repo = _parse_github_repo(url)
-        archive_url = self._archive_url(owner, repo, commit_hash)
+        logger.info("[github] checking out FETCH_HEAD …")
+        checkout = await _run_git("checkout", "FETCH_HEAD", cwd=str(output_dir))
+        if checkout.returncode != 0:
+            raise RuntimeError(
+                f"git checkout failed for {url}@{commit_hash}: "
+                f"{_clean_git_output(checkout.stderr)}"
+            )
 
-        async with self._session.get(archive_url, allow_redirects=True) as resp:
-            if resp.status != 200:
-                body = await resp.text()
-                raise RuntimeError(
-                    f"GitHub tarball download failed (HTTP {resp.status}) "
-                    f"for {url}@{commit_hash}: {body}"
-                )
-            content = await resp.read()
-
-        _extract_tar_strip_root(content, output_dir)
-        logger.info("GitHub %s@%s: extracted to %s", url, commit_hash, output_dir)
+        elapsed = time.monotonic() - t0
+        logger.info("[github] done in %.1fs → %s", elapsed, output_dir)
+        return True
