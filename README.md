@@ -4,6 +4,28 @@ Download source code associated to commit archived on Software Heritage take as 
 
 Each entry is fetched from **GitHub** (shallow clone) when possible, falling back to the **[Software Heritage Vault](https://archive.softwareheritage.org/api/1/vault/)** (git-bare bundle). Already-downloaded entries are skipped on re-run.
 
+> **Disclaimer:** this is an independent, community-maintained tool. It is **not** developed or maintained by Software Heritage, and is not officially supported by them.
+
+---
+
+## Does this tool suit my need?
+
+**Use case:** you have a list of `(repository origin, revision SWHID)` pairs archived on Software Heritage, and you want to download the corresponding source code as fast as possible — trying the origin (e.g. GitHub) first, and only falling back to the slower Software Heritage infrastructure (Vault) as a last resort when the revision no longer exists at the origin.
+
+If that matches what you're after, this tool is for you. If you instead need guaranteed retrieval straight from the Software Heritage archive (regardless of speed, or when the origin is expected to be gone), consider using the [Software Heritage API](https://archive.softwareheritage.org/api/) or [Vault](https://archive.softwareheritage.org/api/1/vault/) directly.
+
+---
+
+## Why?
+
+Software Heritage stores repositories in a **deduplicated** manner: files, directories and revisions are content-addressed and shared across the entire archive rather than kept as one tree per repository. To reconstruct the source tree of a single commit, the archive has to walk the revision's directory graph and re-assemble it from individual blobs — blobs that aren't necessarily stored with any locality to one another. That reconstruction is what makes direct downloads from Software Heritage (Vault bundles included) comparatively slow.
+
+Other tooling such as [swh-fuse](https://docs.softwareheritage.org/devel/swh-fuse/index.html) or [swh-mosaic](https://docs.softwareheritage.org/devel/swh-mosaic/index.html) address this by querying a `swh-graph` instance, but standing one up yourself is prohibitively costly for most use cases.
+
+Since the large majority of archived revisions are still reachable at their origin (GitHub, GitLab, etc.), fetching from there first is almost always faster — falling back to the Software Heritage Vault only when the origin copy is gone.
+
+**Note:** when constructing a `.mosaic` file for the revisions you need is feasible in your setup, using [swh-mosaic](https://docs.softwareheritage.org/devel/swh-mosaic/index.html) directly is currently the most relevant way to reconstruct source trees from Software Heritage — it targets small source-code objects specifically and avoids Vault's cook/fetch round-trip, without requiring a full `swh-graph` deployment.
+
 ---
 
 ## Quick start
