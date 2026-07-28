@@ -145,7 +145,9 @@ async def run_pipeline(
             index=i,
             url=pair["url"],
             swhid=pair["swhid"],
-            output_dir=output_base / _make_output_dir_name(i, pair["url"], pair["swhid"]),
+            output_dir=output_base / pair["output_dir"]
+            if pair.get("output_dir")
+            else output_base / _make_output_dir_name(i, pair["url"], pair["swhid"]),
         )
         for i, pair in enumerate(pairs)
     ]

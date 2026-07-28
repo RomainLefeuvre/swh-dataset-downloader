@@ -11,8 +11,7 @@ Each entry is fetched from **GitHub** (shallow clone) when possible, falling bac
 ```bash
 pip install -r requirements.txt
 
-export SWH_TOKEN=your_swh_token       # required — https://archive.softwareheritage.org/api/auth/login/
-export GITHUB_TOKEN=your_github_token  # optional, avoids rate limiting
+export SWH_TOKEN=your_swh_token  # required — https://archive.softwareheritage.org/api/auth/login/
 
 python -m downloader input.json --output-dir ./output
 ```
@@ -69,7 +68,6 @@ results = asyncio.run(run_pipeline(
     ],
     output_base=Path("./output"),
     swh_token="your_swh_token",
-    github_token="your_github_token",  # optional
 ))
 
 for task in results:
@@ -79,3 +77,14 @@ for task in results:
 ---
 
 See [ADVANCED.md](ADVANCED.md) for Python API reference, logging, and Docker details.
+
+---
+
+## Getting API tokens
+
+### Software Heritage token (required)
+
+1. [Create a Software Heritage account](https://archive.softwareheritage.org/oidc/login/)
+2. Once logged in, go to your [profile token page](https://archive.softwareheritage.org/oidc/profile/#tokens) and generate a new token.
+3. Set it as `SWH_TOKEN` in your environment or `.env` file.
+
