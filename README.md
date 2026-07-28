@@ -20,7 +20,7 @@ If that matches what you're after, this tool is for you. If you instead need gua
 
 Software Heritage stores repositories in a **deduplicated** manner: files, directories and revisions are content-addressed and shared across the entire archive rather than kept as one tree per repository. To reconstruct the source tree of a single commit, the archive has to walk the revision's directory graph and re-assemble it from individual blobs — blobs that aren't necessarily stored with any locality to one another. That reconstruction is what makes direct downloads from Software Heritage (Vault bundles included) comparatively slow.
 
-Other tooling such as [swh-fuse](https://docs.softwareheritage.org/devel/swh-fuse/index.html) or [swh-mosaic](https://docs.softwareheritage.org/devel/swh-mosaic/index.html) address this by querying a `swh-graph` instance, but standing one up yourself is prohibitively costly for most use cases.
+Other tooling such as [swh-fuse](https://docs.softwareheritage.org/devel/swh-fuse/index.html) or [swh-mosaic](https://docs.softwareheritage.org/devel/swh-mosaic/index.html) address this by querying a `swh-graph` instance, and can be  prohibitively costly given your use cases.
 
 Since the large majority of archived revisions are still reachable at their origin (GitHub, GitLab, etc.), fetching from there first is almost always faster — falling back to the Software Heritage Vault only when the origin copy is gone.
 
