@@ -27,25 +27,25 @@ docker compose up --build
 
 ## Input format
 
-JSON or CSV, one entry per commit:
+JSON or CSV, one entry per commit. An optional `output_dir` overrides the auto-generated subdirectory name:
 
 ```json
 [
   { "url": "https://github.com/pallets/flask",       "swhid": "swh:1:rev:0e1a9420d2d6863c5bdddb9ba55e0b55d6f58a9d" },
-  { "url": "https://gitlab.com/inkscape/inkscape",   "swhid": "swh:1:rev:a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2" }
+  { "url": "https://gitlab.com/inkscape/inkscape",   "swhid": "swh:1:rev:a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4e5f6a1b2", "output_dir": "inkscape" }
 ]
 ```
 
 ```csv
-url,swhid
-https://github.com/pallets/flask,swh:1:rev:0e1a9420d2d6863c5bdddb9ba55e0b55d6f58a9d
+url,swhid,output_dir
+https://github.com/pallets/flask,swh:1:rev:0e1a9420d2d6863c5bdddb9ba55e0b55d6f58a9d,
 ```
 
 ---
 
 ## Output
 
-One subdirectory per entry, named `{index}_{repo}_{short_hash}/`, with a `.done` marker on success.
+One subdirectory per entry, with a `.done` marker on success. Named `{index}_{repo}_{short_hash}/` unless `output_dir` was set for that entry.
 
 ```
 output/
@@ -64,7 +64,7 @@ from downloader.pipeline import run_pipeline
 
 results = asyncio.run(run_pipeline(
     pairs=[
-        {"url": "https://github.com/pallets/flask", "swhid": "swh:1:rev:0e1a9420d2d6863c5bdddb9ba55e0b55d6f58a9d"},
+        {"url": "https://github.com/pallets/flask", "swhid": "swh:1:rev:0e1a9420d2d6863c5bdddb9ba55e0b55d6f58a9d", "output_dir": "flask"},
     ],
     output_base=Path("./output"),
     swh_token="your_swh_token",
