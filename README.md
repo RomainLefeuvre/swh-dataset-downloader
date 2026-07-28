@@ -24,7 +24,7 @@ Other tooling such as [swh-fuse](https://docs.softwareheritage.org/devel/swh-fus
 
 Since the large majority of archived revisions are still reachable at their origin (GitHub, GitLab, etc.), fetching from there first is almost always faster — falling back to the Software Heritage Vault only when the origin copy is gone.
 
-**Note:** when constructing a `.mosaic` file for the revisions you need is feasible in your setup, using [swh-mosaic](https://docs.softwareheritage.org/devel/swh-mosaic/index.html) directly is currently the most relevant way to reconstruct source trees from Software Heritage — it targets small source-code objects specifically and avoids Vault's cook/fetch round-trip, without requiring a full `swh-graph` deployment.
+**Note:** if the revision list you're working from was itself extracted using a `swh-graph` analysis, you already have the more efficient path available: constructing a [`.mosaic`](https://docs.softwareheritage.org/devel/swh-mosaic/index.html) file for those selected revisions directly from the graph is faster than going through this tool. This repository instead targets the use case where you want to retrieve revisions archived in Software Heritage **without** having to deploy `swh-graph` and reconstruct a `.mosaic` file.
 
 ---
 
