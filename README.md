@@ -12,7 +12,7 @@ Each entry is fetched from **GitHub** (shallow clone) when possible, falling bac
 
 **Use case:** you have a list of `(repository origin, revision SWHID)` pairs archived on Software Heritage, and you want to download the corresponding source code as fast as possible — trying the origin (e.g. GitHub) first, and only falling back to the slower Software Heritage infrastructure (Vault) as a last resort when the revision no longer exists at the origin.
 
-If that matches what you're after, this tool is for you. If you instead need guaranteed retrieval straight from the Software Heritage archive (regardless of speed, or when the origin is expected to be gone), consider using the [Software Heritage API](https://archive.softwareheritage.org/api/) or [Vault](https://archive.softwareheritage.org/api/1/vault/) directly.
+If that matches what you're after, this tool is for you. If you instead need guaranteed retrieval straight from the Software Heritage archive (regardless of speed, or when the origin is expected to be gone), consider using the [Software Heritage API](https://archive.softwareheritage.org/api/), the [Vault](https://archive.softwareheritage.org/api/1/vault/), or [swh-fuse](https://docs.softwareheritage.org/devel/swh-fuse/index.html) / [swh-mosaic](https://docs.softwareheritage.org/devel/swh-mosaic/index.html) directly.
 
 ---
 
